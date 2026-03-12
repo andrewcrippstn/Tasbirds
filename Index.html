@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>TasBirds — Tasmanian Bird Field Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@300;400&family=Nunito:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root {
+  --forest:    #1b2e22;
+  --canopy:    #2d5038;
+  --moss:      #4a7c5a;
+  --lichen:    #7aaa82;
+  --mist:      #c2d8c5;
+  --parchment: #f0ebe0;
+  --cream:     #faf8f2;
+  --ochre:     #c8862a;
+  --rust:      #9c4a1a;
+  --gold:      #e8b84a;
+  --water:     #5a8fa0;
+  --sky:       #a8ccd8;
+  --text:      #1a2820;
+  --subtext:   #4a6055;
+}
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { height:100%; overflow:hidden; }
+body { font-family:'Nunito',sans-serif; background:var(--cream); color:var(--text); display:flex; flex-direction:column; }
+
+/* HEADER */
+header {
+  background:var(--forest); color:var(--parchment);
+  padding:0 1.25rem; height:52px;
+  display:flex; align-items:center; justify-content:space-between;
+  flex-shrink:0; border-bottom:2px solid var(--ochre); z-index:200;
+}
+.brand { display:flex; align-items:baseline; gap:0.6rem; }
+.brand h1 { font-family:'Lora',serif; font-size:1.45rem; font-weight:700; color:var(--gold); }
+.brand h1 em { font-style:italic; color:var(--mist); font-weight:400; }
+.brand-sub { font-family:'JetBrains Mono',monospace; font-size:0.56rem; letter-spacing:0.15em; text-transform:uppercase; color:var(--lichen); }
+@media(max-width:500px){ .brand-sub { display:none; } }
+.hcount { font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--lichen); }
+
+/* TAB BAR (mobile only) */
+.tab-bar { display:none; background:#152219; flex-shrink:0; }
+@media(max-width:767px){ .tab-bar { display:flex; } }
+.tab-btn {
+  flex:1; padding:0.55rem; background:transparent; border:none;
+  color:var(--lichen); font-family:'JetBrains Mono',monospace;
+  font-size:0.65rem; letter-spacing:0.08em; text-transform:uppercase;
+  cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s;
+}
+.tab-btn.active { color:var(--gold); border-bottom-color:var(--gold); }
+
+/* LAYOUT */
+.app-body { flex:1; overflow:hidden; display:flex; flex-direction:column; }
+@media(min-width:768px){ .app-body { flex-direction:row; } }
+
+/* Mobile tab switching */
+@media(max-width:767px){
+  .map-panel, .list-panel { display:none; }
+  .app-body.show-map  .map-panel  { display:flex; flex-direction:column; height:100%; }
+  .app-body.show-list .list-panel { display:flex; flex-direction:column; height:100%; }
+}
+
+/* MAP PANEL */
+.map-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+@media(min-width:768px){ .map-panel { order:2; } }
+#map { flex:1; width:100%; min-height:0; }
+@media(min-width:768px){ #map { height:60%; flex:none; } }
+
+/* DESKTOP DETAIL (under map) */
+.desk-detail {
+  display:none; background:white;
+  border-top:2px solid var(--mist);
+  overflow-y:auto; padding:1rem 1.5rem;
+  height:40%; flex-shrink:0;
+}
+@media(min-width:768px){ .desk-detail { display:flex; gap:1.25rem; align-items:flex-start; } }
+.desk-detail::-webkit-scrollbar { width:3px; }
+.desk-detail::-webkit-scrollbar-thumb { background:var(--mist); }
+
+/* LIST PANEL */
+.list-panel {
+  background:var(--parchment); overflow:hidden;
+  border-top:2px solid var(--mist);
+}
+@media(min-width:768px){
+  .list-panel { width:320px; flex:none; order:1; border-top:none; border-right:2px solid var(--mist); }
+}
+
+/* SEARCH */
+.search-area { padding:0.7rem; background:var(--cream); border-bottom:1px solid rgba(74,124,90,0.2); flex-shrink:0; }
+.search-wrap { position:relative; }
+.search-wrap input {
+  width:100%; padding:0.52rem 0.8rem 0.52rem 2.1rem;
+  border:1.5px solid rgba(74,124,90,0.3); border-radius:6px;
+  background:white; font-family:'Nunito',sans-serif; font-size:0.88rem;
+  color:var(--text); outline:none; transition:border-color 0.2s;
+}
+.search-wrap input:focus { border-color:var(--moss); }
+.search-icon { position:absolute; left:0.65rem; top:50%; transform:translateY(-50%); font-size:0.82rem; }
+.filter-row { display:flex; gap:0.3rem; flex-wrap:wrap; margin-top:0.55rem; }
+.fpill {
+  font-family:'JetBrains Mono',monospace; font-size:0.58rem;
+  letter-spacing:0.03em; padding:0.2rem 0.5rem; border-radius:20px;
+  border:1.5px solid rgba(74,124,90,0.35); color:var(--canopy);
+  background:transparent; cursor:pointer; transition:all 0.15s; user-select:none;
+}
+.fpill:hover,.fpill.on { background:var(--canopy); color:white; border-color:var(--canopy); }
+.fpill.endemic { border-color:var(--ochre); color:var(--rust); }
+.fpill.endemic:hover,.fpill.endemic.on { background:var(--ochre); color:white; border-color:var(--ochre); }
+
+/* COUNT ROW */
+.count-row {
+  padding:0.35rem 0.75rem; font-family:'JetBrains Mono',monospace;
+  font-size:0.6rem; color:var(--moss); letter-spacing:0.08em;
+  background:rgba(74,124,90,0.06); border-bottom:1px solid rgba(74,124,90,0.12);
+  flex-shrink:0;
+}
+
+/* BIRD SCROLL */
+.bird-scroll { flex:1; overflow-y:auto; padding:0.4rem; min-height:0; }
+.bird-scroll::-webkit-scrollbar { width:3px; }
+.bird-scroll::-webkit-scrollbar-thumb { background:var(--lichen); }
+
+/* BIRD CARD */
+.bird-card {
+  background:white; border:1.5px solid transparent; border-radius:8px;
+  margin-bottom:0.35rem; padding:0.55rem 0.65rem;
+  cursor:pointer; display:flex; align-items:center; gap:0.6rem;
+  transition:all 0.15s; animation:fadeUp 0.25s ease both;
+}
+@keyframes fadeUp { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
+.bird-card:hover  { border-color:var(--lichen); background:var(--parchment); }
+.bird-card.sel    { border-color:var(--ochre); background:var(--parchment); box-shadow:0 2px 8px rgba(200,134,42,0.15); }
+
+.bird-photo {
+  width:50px; height:50px; border-radius:6px; object-fit:cover;
+  flex-shrink:0; background:var(--mist); display:block;
+}
+.bird-emoji-thumb {
+  width:50px; height:50px; border-radius:6px;
+  background:linear-gradient(135deg,var(--mist),var(--parchment));
+  display:flex; align-items:center; justify-content:center;
+  font-size:1.7rem; flex-shrink:0;
+}
+.card-text { flex:1; min-width:0; }
+.card-name { font-family:'Lora',serif; font-size:0.9rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.card-latin { font-family:'JetBrains Mono',monospace; font-size:0.57rem; color:var(--moss); font-style:italic; margin-top:0.1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.card-region { font-size:0.7rem; color:var(--subtext); margin-top:0.12rem; display:flex; align-items:center; gap:0.3rem; }
+.edot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--ochre); flex-shrink:0; }
+
+/* MOBILE DETAIL */
+.mob-detail { display:block; background:white; border-top:2px solid var(--mist); padding:1rem; overflow-y:auto; flex-shrink:0; max-height:45vh; }
+@media(min-width:768px){ .mob-detail { display:none; } }
+.mob-detail::-webkit-scrollbar { width:3px; }
+
+/* SHARED DETAIL */
+.det-inner { display:flex; gap:1rem; align-items:flex-start; }
+
+/* Photo with caption */
+.det-photo-wrap { flex-shrink:0; }
+.det-img {
+  width:100px; height:100px; border-radius:8px; object-fit:cover;
+  border:2px solid var(--mist); background:var(--mist); display:block;
+}
+@media(min-width:768px){ .det-img { width:130px; height:130px; } }
+.det-emoji {
+  width:100px; height:100px; border-radius:8px;
+  background:linear-gradient(135deg,var(--mist),var(--parchment));
+  display:flex; align-items:center; justify-content:center;
+  font-size:3.2rem; border:2px solid var(--mist); flex-shrink:0;
+}
+@media(min-width:768px){ .det-emoji { width:130px; height:130px; } }
+.photo-credit { font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:var(--subtext); margin-top:0.3rem; max-width:100px; line-height:1.3; }
+@media(min-width:768px){ .photo-credit { max-width:130px; } }
+
+.det-body { flex:1; min-width:0; }
+.det-name { font-family:'Lora',serif; font-size:1.2rem; font-weight:700; line-height:1.2; }
+@media(min-width:768px){ .det-name { font-size:1.5rem; } }
+.det-latin { font-family:'JetBrains Mono',monospace; font-size:0.63rem; color:var(--moss); font-style:italic; margin:0.2rem 0 0.5rem; }
+.det-chips { display:flex; gap:0.35rem; flex-wrap:wrap; margin-bottom:0.65rem; }
+.chip { font-family:'JetBrains Mono',monospace; font-size:0.57rem; padding:0.17rem 0.48rem; border-radius:3px; letter-spacing:0.04em; text-transform:uppercase; }
+.chip.endemic { background:rgba(200,134,42,0.15); color:var(--rust); }
+.chip.region  { background:rgba(74,124,90,0.12); color:var(--canopy); }
+.chip.status  { background:rgba(90,143,160,0.12); color:var(--water); }
+.chip.habitat { background:rgba(122,170,130,0.18); color:var(--canopy); }
+.det-desc { font-size:0.82rem; line-height:1.65; color:#2a3a2a; margin-bottom:0.6rem; }
+.det-facts { display:grid; grid-template-columns:repeat(3,1fr); gap:0.45rem; }
+.fact { background:var(--parchment); border-radius:5px; padding:0.45rem 0.55rem; border-left:3px solid var(--moss); }
+.fact-lbl { font-family:'JetBrains Mono',monospace; font-size:0.54rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--subtext); margin-bottom:0.15rem; }
+.fact-val { font-size:0.77rem; font-weight:600; color:var(--text); }
+
+/* placeholder detail */
+.det-placeholder { display:flex; align-items:center; justify-content:center; height:100%; color:var(--subtext); font-family:'Lora',serif; font-style:italic; font-size:0.9rem; }
+
+/* Leaflet overrides */
+.leaflet-tooltip { font-family:'Nunito',sans-serif; font-size:0.8rem; border:1px solid var(--mist) !important; border-radius:4px !important; box-shadow:0 2px 8px rgba(0,0,0,0.1) !important; padding:4px 8px !important; }
+.region-label { background:rgba(255,255,255,0.75) !important; border:none !important; box-shadow:none !important; font-family:'JetBrains Mono',monospace !important; font-size:0.65rem !important; letter-spacing:0.08em; text-transform:uppercase; color:var(--subtext) !important; pointer-events:none; }
+.region-label::before { display:none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>Tas<em>Birds</em></h1>
+    <span class="brand-sub">Field Guide · Tasmania</span>
+  </div>
+  <div class="hcount" id="hcount">15 species</div>
+</header>
+
+<div class="tab-bar">
+  <button class="tab-btn active" id="tab-list" onclick="showTab('list')">🦜 Species</button>
+  <button class="tab-btn"        id="tab-map"  onclick="showTab('map')">🗺 Map</button>
+</div>
+
+<div class="app-body show-list" id="app-body">
+
+  <!-- LIST -->
+  <div class="list-panel">
+    <div class="search-area">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search" placeholder="Search species…">
+      </div>
+      <div class="filter-row">
+        <span class="fpill on" data-f="all">All species</span>
+        <span class="fpill"    data-f="photo">Has photo</span>
+      </div>
+    </div>
+    <div class="count-row" id="count-row">15 species</div>
+    <div class="bird-scroll" id="bird-scroll"></div>
+    <div class="mob-detail" id="mob-detail" style="display:none"></div>
+  </div>
+
+  <!-- MAP + DESKTOP DETAIL -->
+  <div class="map-panel">
+    <div id="map"></div>
+    <div class="desk-detail" id="desk-detail">
+      <div class="det-placeholder">Select a bird to see details</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  BIRDS — populated dynamically from iNaturalist
+// ─────────────────────────────────────────────
+let BIRDS = [];
+
+// ─────────────────────────────────────────────
+//  CONFIG
+// ─────────────────────────────────────────────
+const INAT_PLACE_ID    = 6829; // Tasmania, AU
+const INAT_TAXON_BIRDS = 3;    // Aves
+
+function birdEmoji(name = '', family = '') {
+  const n = (name + ' ' + family).toLowerCase();
+  if (n.includes('eagle') || n.includes('hawk') || n.includes('osprey') || n.includes('accipitridae')) return '🦅';
+  if (n.includes('owl') || n.includes('strigidae')) return '🦉';
+  if (n.includes('parrot') || n.includes('rosella') || n.includes('lorikeet') || n.includes('cockatoo') || n.includes('psittac')) return '🦜';
+  if (n.includes('penguin') || n.includes('spheniscidae')) return '🐧';
+  if (n.includes('duck') || n.includes('teal') || n.includes('shelduck') || n.includes('anatidae')) return '🦆';
+  if (n.includes('swan')) return '🦢';
+  if (n.includes('heron') || n.includes('egret') || n.includes('ibis') || n.includes('ardeidae')) return '🦩';
+  if (n.includes('albatross') || n.includes('petrel') || n.includes('shearwater') || n.includes('procellariidae')) return '🕊️';
+  if (n.includes('kingfisher') || n.includes('alcedinidae')) return '🐠';
+  if (n.includes('robin') || n.includes('petroicidae')) return '🐤';
+  if (n.includes('wren') || n.includes('maluridae')) return '💙';
+  if (n.includes('currawong') || n.includes('raven') || n.includes('crow') || n.includes('magpie') || n.includes('corvidae')) return '🐦‍⬛';
+  if (n.includes('honeyeater') || n.includes('wattlebird') || n.includes('meliphagidae')) return '🌸';
+  if (n.includes('plover') || n.includes('dotterel') || n.includes('sandpiper') || n.includes('charadriidae')) return '🐾';
+  if (n.includes('gull') || n.includes('tern') || n.includes('laridae')) return '⛵';
+  if (n.includes('swift') || n.includes('apodidae')) return '💨';
+  if (n.includes('cuckoo') || n.includes('cuculidae')) return '🎵';
+  if (n.includes('falcon') || n.includes('falconidae')) return '🪃';
+  if (n.includes('pigeon') || n.includes('dove') || n.includes('columbidae')) return '🕊️';
+  if (n.includes('thornbill') || n.includes('pardalote') || n.includes('acanthizidae')) return '🟡';
+  return '🐦';
+}
+
+// ─────────────────────────────────────────────
+//  LOAD ALL BIRDS FROM iNATURALIST
+//  Fetches species_counts (all ~300 Tasmanian
+//  bird species with photos), then lazily loads
+//  region data for each via observation points
+// ─────────────────────────────────────────────
+async function fetchPage(page) {
+  // Note: species_counts does NOT support order/order_by params (causes 422)
+  // It always returns sorted by observation count descending by default
+  const url = `https://api.inaturalist.org/v1/observations/species_counts`
+    + `?place_id=${INAT_PLACE_ID}`
+    + `&taxon_id=${INAT_TAXON_BIRDS}`
+    + `&verifiable=true`
+    + `&per_page=200`
+    + `&page=${page}`;
+  console.log(`[TasBirds] Fetching page ${page}:`, url);
+  const res = await fetch(url, {
+    headers: { 'Accept': 'application/json' }
+  });
+  console.log(`[TasBirds] Page ${page} status:`, res.status);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error(`[TasBirds] Page ${page} error body:`, body);
+    throw new Error(`HTTP ${res.status} on page ${page}${body ? ': ' + body.slice(0,120) : ''}`);
+  }
+  const data = await res.json();
+  console.log(`[TasBirds] Page ${page}: ${data.results?.length} results, total_results: ${data.total_results}`);
+  return data.results || [];
+}
+
+async function loadAllBirds() {
+  setStatus('Connecting to iNaturalist…');
+
+  // Fetch first page — show results immediately, then load more
+  const page1 = await fetchPage(1);
+  if (!page1.length) throw new Error('No results returned from iNaturalist');
+
+  processResults(page1);
+  setStatus(`${BIRDS.length} species — loading more…`);
+  renderList();
+
+  // Fetch remaining pages sequentially — iNaturalist has ~300 Tasmanian bird species
+  for (let page = 2; page <= 3; page++) {
+    try {
+      const results = await fetchPage(page);
+      if (!results.length) break;
+      processResults(results);
+      setStatus(`${BIRDS.length} species loaded`);
+      renderList();
+      await new Promise(r => setTimeout(r, 300)); // be polite
+    } catch(e) {
+      console.warn(`[TasBirds] Page ${page} failed:`, e);
+      break;
+    }
+  }
+
+  setStatus(`${BIRDS.length} species`);
+}
+
+function processResults(results) {
+  const existingIds = new Set(BIRDS.map(b => b.inatId));
+  const newBirds = results
+    .filter(item => item.taxon && !existingIds.has(item.taxon.id))
+    .map((item, i) => {
+      const t = item.taxon;
+      // species_counts includes default_photo on the taxon object
+      const p = t.default_photo;
+      return {
+        id:      BIRDS.length + i + 1,
+        inatId:  t.id,
+        name:    t.preferred_common_name || t.name,
+        latin:   t.name,
+        emoji:   birdEmoji(t.preferred_common_name || '', t.iconic_taxon_name || ''),
+        photo:   p ? (p.medium_url || p.square_url || null) : null,
+        credit:  p ? (p.attribution || 'iNaturalist') : null,
+        count:   item.count,
+        status:  t.conservation_status?.status_name || null,
+        desc:    t.wikipedia_summary
+                   || `${t.preferred_common_name || t.name} — recorded ${item.count.toLocaleString()} times in Tasmania on iNaturalist.`,
+        inatUrl: `https://www.inaturalist.org/taxa/${t.id}`,
+      };
+    });
+  BIRDS.push(...newBirds);
+}
+
+
+// ─────────────────────────────────────────────
+//  MAP SETUP
+// ─────────────────────────────────────────────
+const map = L.map('map', { center:[-42.1,146.5], zoom:7 });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  attribution:'© <a href="https://openstreetmap.org">OSM</a> © CARTO',
+  subdomains:'abcd', maxZoom:19
+}).addTo(map);
+
+let rangeLayer = null;
+
+// ─────────────────────────────────────────────
+//  SHOW RANGE AS TILE LAYER
+//  iNaturalist serves observation heatmap tiles
+//  directly — no CORS issues, no S3 download
+// ─────────────────────────────────────────────
+function showRange(bird) {
+  if (rangeLayer) { map.removeLayer(rangeLayer); rangeLayer = null; }
+
+  setRangeChip(bird.id, '📍 Observation range');
+
+  // iNaturalist colored heatmap tile endpoint
+  rangeLayer = L.tileLayer(
+    `https://api.inaturalist.org/v1/colored_heatmap/{z}/{x}/{y}.png?taxon_id=${bird.inatId}&color=%234a9c6a`,
+    { opacity: 0.75, maxZoom: 13, attribution: 'Range © iNaturalist' }
+  ).addTo(map);
+
+  map.invalidateSize();
+  map.fitBounds([[-43.7, 143.8], [-39.5, 148.6]], { padding:[20,20], animate:true });
+}
+
+function setRangeChip(birdId, text) {
+  // Update chip in both desktop and mobile detail panels
+  document.querySelectorAll(`#range-chip-${birdId}`).forEach(el => {
+    el.textContent = text;
+    el.style.display = text ? '' : 'none';
+  });
+}
+
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let selected = null;
+let activeFilter = 'all';
+let searchTerm = '';
+
+// ─────────────────────────────────────────────
+//  FILTER
+// ─────────────────────────────────────────────
+function filtered() {
+  return BIRDS.filter(b => {
+    const ms = !searchTerm ||
+      b.name.toLowerCase().includes(searchTerm) ||
+      b.latin.toLowerCase().includes(searchTerm);
+    const mf = activeFilter === 'photo' ? !!b.photo : true;
+    return ms && mf;
+  });
+}
+
+// ─────────────────────────────────────────────
+//  DETAIL HTML
+// ─────────────────────────────────────────────
+function detailHTML(b) {
+  const img = b.photo
+    ? `<div class="det-photo-wrap">
+         <img class="det-img" src="${b.photo}" alt="${b.name}"
+              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+         <div class="det-emoji" style="display:none">${b.emoji}</div>
+         ${b.credit ? `<div class="photo-credit">📷 ${b.credit}</div>` : ''}
+       </div>`
+    : `<div class="det-photo-wrap"><div class="det-emoji">${b.emoji}</div></div>`;
+
+  const statusChip = b.status ? `<span class="chip status">${b.status}</span>` : '';
+
+  return `<div class="det-inner">
+    ${img}
+    <div class="det-body">
+      <div class="det-name">${b.name}</div>
+      <div class="det-latin">${b.latin}</div>
+      <div class="det-chips">
+        ${statusChip}
+        <span class="chip region" id="range-chip-${b.id}" onclick="viewOnMap()" style="cursor:pointer" title="Click to view on map"></span>
+      </div>
+      <p class="det-desc">${b.desc}</p>
+      <div class="det-facts">
+        <div class="fact">
+          <div class="fact-lbl">Observations</div>
+          <div class="fact-val">${b.count ? b.count.toLocaleString() : '–'}</div>
+        </div>
+        <div class="fact">
+          <div class="fact-lbl">Conservation</div>
+          <div class="fact-val">${b.status || 'Not assessed'}</div>
+        </div>
+        <div class="fact">
+          <div class="fact-lbl">iNaturalist</div>
+          <div class="fact-val"><a href="${b.inatUrl}" target="_blank" style="color:var(--moss);font-size:0.75rem">View →</a></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ─────────────────────────────────────────────
+//  SELECT BIRD
+// ─────────────────────────────────────────────
+function selectBird(id) {
+  selected = BIRDS.find(b => b.id === id);
+  if (!selected) return;
+
+  document.querySelectorAll('.bird-card').forEach(c =>
+    c.classList.toggle('sel', parseInt(c.dataset.id) === id)
+  );
+
+  const html = detailHTML(selected);
+  document.getElementById('desk-detail').innerHTML = html;
+  const mob = document.getElementById('mob-detail');
+  mob.style.display = 'block';
+  mob.innerHTML = html;
+  setTimeout(() => mob.scrollIntoView({ behavior:'smooth', block:'nearest' }), 50);
+
+  // Load range tiles in background (map shown when user clicks "View on map")
+  showRange(selected);
+}
+
+function viewOnMap() {
+  showTab('map');
+  setTimeout(() => {
+    map.invalidateSize();
+    if (selected) map.fitBounds([[-43.7, 143.8], [-39.5, 148.6]], { padding:[20,20], animate:true });
+  }, 80);
+}
+
+// ─────────────────────────────────────────────
+//  RENDER LIST
+// ─────────────────────────────────────────────
+function renderList() {
+  const list = filtered();
+  document.getElementById('count-row').textContent =
+    `${list.length} species${searchTerm ? ' matching' : ''}`;
+  document.getElementById('hcount').textContent = `${list.length} / ${BIRDS.length}`;
+
+  const el = document.getElementById('bird-scroll');
+  el.innerHTML = list.map((b,i) => `
+    <div class="bird-card${selected && selected.id===b.id?' sel':''}"
+         data-id="${b.id}" style="animation-delay:${Math.min(i*12,280)}ms">
+      ${b.photo
+        ? `<img class="bird-photo" src="${b.photo}" alt="${b.name}" loading="lazy"
+               onerror="this.outerHTML='<div class=bird-emoji-thumb>${b.emoji}</div>'">`
+        : `<div class="bird-emoji-thumb">${b.emoji}</div>`}
+      <div class="card-text">
+        <div class="card-name">${b.name}</div>
+        <div class="card-latin">${b.latin}</div>
+        <div class="card-meta">
+          <span>${b.emoji}</span>
+          <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--water)">${b.count ? b.count.toLocaleString()+' obs' : ''}</span>
+        </div>
+      </div>
+    </div>`).join('');
+
+  el.querySelectorAll('.bird-card').forEach(c =>
+    c.addEventListener('click', () => selectBird(parseInt(c.dataset.id)))
+  );
+}
+
+// ─────────────────────────────────────────────
+//  CONTROLS
+// ─────────────────────────────────────────────
+document.getElementById('search').addEventListener('input', e => {
+  searchTerm = e.target.value.toLowerCase().trim();
+  renderList();
+});
+
+document.querySelectorAll('.fpill').forEach(p =>
+  p.addEventListener('click', () => {
+    document.querySelectorAll('.fpill').forEach(x => x.classList.remove('on'));
+    p.classList.add('on');
+    activeFilter = p.dataset.f;
+    renderList();
+  })
+);
+
+function showTab(tab) {
+  const body = document.getElementById('app-body');
+  body.className = `app-body show-${tab}`;
+  document.getElementById('tab-list').classList.toggle('active', tab==='list');
+  document.getElementById('tab-map').classList.toggle('active',  tab==='map');
+  if (tab==='map') setTimeout(() => map.invalidateSize(), 60);
+}
+
+window.addEventListener('resize', () => map.invalidateSize());
+
+// ─────────────────────────────────────────────
+//  STATUS HELPER
+// ─────────────────────────────────────────────
+function setStatus(msg) {
+  document.getElementById('hcount').textContent = msg;
+  document.getElementById('count-row').textContent = msg;
+}
+
+// ─────────────────────────────────────────────
+//  BOOT
+// ─────────────────────────────────────────────
+
+// Show loading state immediately
+document.getElementById('bird-scroll').innerHTML = `
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;gap:0.8rem;color:var(--moss)">
+    <div style="width:30px;height:30px;border:3px solid var(--mist);border-top-color:var(--moss);border-radius:50%;animation:spin 0.7s linear infinite"></div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;letter-spacing:0.1em;animation:pulse 1.5s ease-in-out infinite">Loading all Tasmanian birds…</div>
+  </div>`;
+
+loadAllBirds().catch(err => {
+  console.error('[TasBirds] Load failed:', err);
+  setStatus('⚠ Failed to load');
+  document.getElementById('bird-scroll').innerHTML =
+    `<div style="padding:1.5rem;text-align:center;color:var(--rust);font-family:'JetBrains Mono',monospace;font-size:0.72rem;line-height:1.8">
+      ⚠ Could not reach iNaturalist API.<br><br>
+      Error: ${err.message}<br><br>
+      Please check your internet connection and reload the page.<br><br>
+      <small style="opacity:0.6">Open browser console (F12) for details.</small>
+    </div>`;
+});
+</script>
+</body>
+</html>
